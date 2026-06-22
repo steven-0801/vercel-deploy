@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>本地AI邮件润色（完全免费）</title>
+    <style>
+        body { font-family: Arial; max-width: 600px; margin: 50px auto; padding: 20px; }
+        textarea { width: 100%; height: 150px; padding: 10px; font-size: 16px; }
+        button { padding: 12px 30px; font-size: 18px; background: #007bff; color: white; border: none; border-radius: 6px; cursor: pointer; }
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
+        #result { margin-top: 20px; padding: 15px; background: #f5f5f5; border-radius: 6px; white-space: pre-wrap; }
+        .credit-box {
+            background: #e8f4f8;
+            padding: 10px 16px;
+            border-radius: 6px;
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .credit-box .count { font-weight: bold; font-size: 20px; color: #007bff; }
+        .credit-box .count.low { color: #dc3545; }
+        .btn-reset { padding: 4px 14px; font-size: 13px; background: #e0e7ef; border: none; border-radius: 4px; cursor: pointer; }
+    </style>
+</head>
+<body>
+    <h1>📧 本地AI邮件润色（免费）</h1>
+    <p>输入草稿，AI帮你润色 - 数据只留在你的电脑里</p>
+
+    <div class="credit-box">
+        <span>🔑 剩余次数：<span class="count" id="creditDisplay">10</span></span>
+        <button class="btn-reset" onclick="resetCredits()">重置为10次</button>
+    </div>
+
+    <textarea id="inputText" placeholder="把你的邮件草稿粘贴到这里...">Hi team, we need to finish the report by Friday. Please send me your parts ASAP.</textarea>
+    <br><br>
+    <button id="polishBtn" onclick="polishEmail()">✨ 润色邮件</button>
+    <div id="result">💡 点击按钮开始润色</div>
+
+    <script>
+        let remainingCredits = parseInt(localStorage.getItem('emailPolisherCredits')) || 10;
+
+        function updateCreditDisplay() {
+            const el = document.getElementById('creditDisplay');
+            el.textContent = remainingCredits;
+            el.className = remainingCredits <= 3 ? 'count low' : 'count';
+            localStorage.setItem('emailPolisherCredits', remainingCredits);
+        }
+
+        function resetCredits() {
+            remainingCredits = 10;
+            updateCreditDisplay();
+            document.getElementById('result').innerHTML = '🔄 已重置为10次';
+        }
+
+        function deductCredit() {
+            if (remainingCredits <= 0) return false;
+            remainingCredits--;
+            updateCreditDisplay();
+            return true;
+        }
+
+        updateCreditDisplay();
+
+        async function polishEmail() {
+            const input = document.getElementById('inputText').value;
+            const resultDiv = document.getElementById('result');
+            const btn = document.getElementById('polishBtn');
+
+            if (!input.trim()) {
+                resultDiv.innerHTML = '⚠️ 请先输入邮件内容';
+                return;
+            }
+
+            if (remainingCredits <= 0) {
+                resultDiv.innerHTML = '❌ 次数用完，点击「重置为10次」继续体验';
+                return;
+            }
+
+            btn.disabled = true;
+            resultDiv.innerHTML = '⏳ 本地AI正在润色...（首次加载稍慢）';
+
+            try {
+                const response = await fetch('http://localhost:11434/api/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        model: 'llama3.2:3b',
+                        messages: [
+                            {
+                                role: 'system',
+                                content: `You are an email proofreader and formatter. Improve grammar, clarity, tone, and COMPLETE the email format.
+
+RULES:
+1. Preserve ALL codes, numbers, names, dates, and reference numbers exactly as written.
+
+2. Complete the email structure ONLY if the original is missing standard elements:
+   - If no greeting/salutation (like "Dear X" or "Hi X"), add a polite one based on context
+   - If no closing line (like "Best regards" or "Yours sincerely"), add an appropriate one
+   - If no signature line placeholder, add "[Your Name]" as a placeholder
+   - If the email is very abrupt, add a polite opening sentence (like "I hope this email finds you well")
+
+3. DO NOT add any specific factual information (names, dates, codes, numbers) that were not in the original.
+
+4. Use placeholders like [Your Name] for information that is clearly missing but should be filled by the user.
+
+5. Output only the polished email, nothing else. And do not say anything like "Here's a revised version" at the beginning.`
+                            },
+                            {
+                                role: 'user',
+                                content: `Polish and format this email. Complete any missing structural elements (greeting, closing, signature placeholder) but do NOT add any specific facts that aren't in the original. Preserve all codes and numbers exactly as written:\n\n${input}`
+                            }
+                        ],
+                        stream: false
+                    })
+                });
+
+                const data = await response.json();
+                const polished = data.message.content;
+
+                if (polished && polished.trim()) {
+                    deductCredit();
+                    resultDiv.innerHTML = `📝 润色结果：<br><br>${polished}`;
+                } else {
+                    resultDiv.innerHTML = '⚠️ 模型返回空内容，请重试';
+                }
+
+            } catch (error) {
+                resultDiv.innerHTML = `❌ 错误：请确认Ollama正在运行（桌面是否有羊驼图标）。<br>详情：${error.message}`;
+            } finally {
+                btn.disabled = false;
+            }
+        }
+
+        document.getElementById('inputText').addEventListener('keydown', function(e) {
+            if (e.ctrlKey && e.key === 'Enter') {
+                e.preventDefault();
+                polishEmail();
+            }
+        });
+    </script>
+</body>
+</html>
